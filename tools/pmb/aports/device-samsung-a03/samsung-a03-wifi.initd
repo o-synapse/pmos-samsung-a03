@@ -1,0 +1,73 @@
+#!/sbin/openrc-run
+# Wi-Fi on the SM-A035F only works with Samsung's binary driver from the socko partition.
+# It needs /vendor/etc/wcn/*.ini from the vendor logical partition inside super, and
+# /data/vendor/wifi for its MAC address file. If /etc/wpa_supplicant/wpa_supplicant.conf
+# exists and NetworkManager is not enabled, wpa_supplicant and udhcpc are started on wlan0 too.
+
+description="Samsung Galaxy A03 Wi-Fi"
+
+# The vendor partition's extent in super (from the LP metadata of A035FXXS9CYG1)
+vendor_offset=$((8288256 * 512))
+vendor_size=$((1592312 * 512))
+wpa_conf=/etc/wpa_supplicant/wpa_supplicant.conf
+module=/run/sprdwl_ng.ko
+
+depend() {
+	need localmount udev-settle
+	before networkmanager
+}
+
+# The stock driver stalls TX for good under load: the firmware asks to power down after
+# almost every packet, the driver agrees whenever its queues look empty, and then it often
+# never wakes the firmware again ("fw_awake = 0", "tx drop"). Two patches, for socko's
+# sprdwl_ng.ko from A035FXXS9CYG1 (md5 118e4578...); any other build is loaded unpatched:
+# - sprdwl_fw_power_down_ack: always take the "TX pending" branch, i.e. refuse the power
+#   down and keep fw_awake=1 (b.gt -> b). This alone fixes the stall.
+# - sprdwl_tx_work_queue: wake the firmware when "fw awake" is 0 rather than when the
+#   "fw powered down" flag is set (ldr [x21,#5976] -> #5980, cmp #1 -> cmp #0).
+patch_module() {
+	cp /mnt/socko/sprdwl_ng.ko $module || return 1
+	[ "$(od -An -tx1 -j $((0x1d980)) -N 4 $module | tr -d ' \n')" = 2c010054 ] &&
+		[ "$(od -An -tx1 -j $((0x36f48)) -N 8 $module | tr -d ' \n')" = a85a57b91f050071 ] ||
+		{ ewarn "Unknown sprdwl_ng.ko build, loading it unpatched"; return 0; }
+	printf '\011\000\000\024' | dd of=$module bs=1 seek=$((0x1d980)) conv=notrunc 2>/dev/null &&
+		printf '\136' | dd of=$module bs=1 seek=$((0x36f49)) conv=notrunc 2>/dev/null &&
+		printf '\000' | dd of=$module bs=1 seek=$((0x36f4d)) conv=notrunc 2>/dev/null
+}
+
+start() {
+	ebegin "Loading the Wi-Fi driver"
+	mkdir -p /vendor /mnt/socko /data/vendor/wifi
+	if ! mountpoint -q /vendor; then
+		loop=$(losetup -f) &&
+			losetup -r -o $vendor_offset --sizelimit $vendor_size $loop /dev/block/by-name/super &&
+			mount -o ro $loop /vendor || { eend 1 "Cannot mount vendor"; return 1; }
+	fi
+	mountpoint -q /mnt/socko || mount -o ro /dev/block/by-name/socko /mnt/socko ||
+		{ eend 1 "Cannot mount socko"; return 1; }
+	if ! grep -q '^sprdwl_ng ' /proc/modules; then
+		patch_module || { eend 1 "Cannot copy sprdwl_ng.ko"; return 1; }
+		insmod $module
+	fi
+	i=0
+	while [ ! -e /sys/class/net/wlan0 ] && [ $i -lt 20 ]; do sleep 0.5; i=$((i + 1)); done
+	[ -e /sys/class/net/wlan0 ]
+	eend $? "wlan0 did not appear" || return 1
+
+	# NetworkManager (Phosh) brings wlan0 up itself
+	[ -f $wpa_conf ] && [ ! -e /etc/runlevels/default/networkmanager ] || return 0
+	ebegin "Connecting wlan0"
+	ip link set wlan0 up &&
+		start-stop-daemon -S -x /sbin/wpa_supplicant -p /run/wpa_supplicant.wlan0.pid -- \
+			-B -D nl80211 -i wlan0 -c $wpa_conf -P /run/wpa_supplicant.wlan0.pid &&
+		start-stop-daemon -S -b -m -x /sbin/udhcpc -p /run/udhcpc.wlan0.pid -- -f -i wlan0 -S
+	eend $?
+}
+
+stop() {
+	ebegin "Disconnecting wlan0"
+	start-stop-daemon -K -p /run/udhcpc.wlan0.pid 2>/dev/null
+	start-stop-daemon -K -p /run/wpa_supplicant.wlan0.pid 2>/dev/null
+	ip link set wlan0 down 2>/dev/null
+	eend 0
+}

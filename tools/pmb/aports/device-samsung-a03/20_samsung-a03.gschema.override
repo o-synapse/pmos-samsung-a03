@@ -1,0 +1,4 @@
+# Phosh already handles the power key (blank/unblank); if gsd acts on it too,
+# a wake press blanks the screen again straight away
+[org.gnome.settings-daemon.plugins.power]
+power-button-action='nothing'

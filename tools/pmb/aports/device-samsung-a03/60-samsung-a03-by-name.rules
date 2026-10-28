@@ -1,0 +1,3 @@
+# Android-style partition links. The vendor Wi-Fi/WCN driver (sprdwl_ng.ko) loads the
+# wcnmodem and gnssmodem firmware from /dev/block/platform/sdio_emmc/by-name.
+SUBSYSTEM=="block", KERNEL=="mmcblk0p*", ENV{PARTNAME}=="?*", SYMLINK+="block/by-name/$env{PARTNAME}", SYMLINK+="block/platform/sdio_emmc/by-name/$env{PARTNAME}"

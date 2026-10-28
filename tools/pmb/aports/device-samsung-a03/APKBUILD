@@ -1,0 +1,52 @@
+# Reference: <https://postmarketos.org/devicepkg>
+pkgname=device-samsung-a03
+pkgdesc="Samsung Galaxy A03 (SM-A035F)"
+pkgver=1
+pkgrel=8
+url="https://postmarketos.org"
+license="MIT"
+arch="aarch64"
+options="!check !archcheck"
+depends="
+	iw
+	linux-samsung-a03
+	postmarketos-base
+	stevia-schemas
+	wpa_supplicant
+"
+makedepends="devicepkg-dev"
+install="$pkgname.post-install $pkgname.post-upgrade"
+source="
+	deviceinfo
+	60-samsung-a03-by-name.rules
+	72-samsung-a03-no-audio.rules
+	50-samsung-a03-networkmanager.conf
+	samsung-a03-wifi.initd
+	20_samsung-a03.gschema.override
+	"
+
+build() {
+	devicepkg_build $startdir $pkgname
+}
+
+package() {
+	devicepkg_package $startdir $pkgname
+	install -Dm644 "$srcdir"/60-samsung-a03-by-name.rules \
+		"$pkgdir"/usr/lib/udev/rules.d/60-samsung-a03-by-name.rules
+	install -Dm644 "$srcdir"/72-samsung-a03-no-audio.rules \
+		"$pkgdir"/usr/lib/udev/rules.d/72-samsung-a03-no-audio.rules
+	install -Dm644 "$srcdir"/50-samsung-a03-networkmanager.conf \
+		"$pkgdir"/etc/NetworkManager/conf.d/50-samsung-a03.conf
+	install -Dm755 "$srcdir"/samsung-a03-wifi.initd "$pkgdir"/etc/init.d/samsung-a03-wifi
+	install -Dm644 "$srcdir"/20_samsung-a03.gschema.override \
+		"$pkgdir"/usr/share/glib-2.0/schemas/20_samsung-a03.gschema.override
+}
+
+sha512sums="
+4d007a4eae0abde681c635494d228cf14cf9c81d9d9ef61a7490d1028bd97919b500dda04cf4de4e5ff05c06a26d9f741e74804381a9b8fcb31d848979f38ceb  deviceinfo
+a4b5234a9d66c40d20a753a30ecf367e10d2fe77afd52db8e42e020de7f7949bd3c6c5f5d711b43fa7eff8dae097544283002d7b3fbf81cb7af706e85d685f93  60-samsung-a03-by-name.rules
+88b96919d6381187040411a89db6a06b3a49ae9c9c61a46b11ede3c6733cd627f2fb56db7ad581b356be6e0626ab0750a4030daf9d3c51f5974adf4150ff99aa  72-samsung-a03-no-audio.rules
+3c0895f9eca39f13c0557bfed6c6f90342e887d4a2892505ed3278d8026b4c7802d46f0c8e21611d9a30c36b7760c976ddbb3fb5aa5c10714cf2fda52c258d8b  50-samsung-a03-networkmanager.conf
+65333311a1ea5188c333635cab8cd91a748863c04dc0144b6dd897260703f01112d534f049298522b8a425892bf82e7a2b8d1b8db11c398544a4273f15818792  samsung-a03-wifi.initd
+9baf6dc46e523512276786301b6e362828a3aa6247970ad84769a5536e0099846cba9a57ff4ba21cae5e54f01594be557250e5c1922084586dc13d236c7bdc69  20_samsung-a03.gschema.override
+"

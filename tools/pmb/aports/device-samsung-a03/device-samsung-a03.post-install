@@ -1,0 +1,13 @@
+#!/bin/sh
+rc-update -q add samsung-a03-wifi default
+
+# The GPU has no usable Mesa driver: wlroots/phoc and GTK must render in software
+for v in WLR_RENDERER=pixman GSK_RENDERER=cairo; do
+	grep -qx "$v" /etc/environment 2>/dev/null || echo "$v" >> /etc/environment
+done
+
+# NetworkManager runs its own wpa_supplicant; the standalone service fights it for wlan0
+if [ -e /etc/runlevels/default/networkmanager ]; then
+	rc-update -q del wpa_supplicant default 2>/dev/null
+fi
+exit 0

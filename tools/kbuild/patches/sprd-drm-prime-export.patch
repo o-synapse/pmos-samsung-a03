@@ -1,0 +1,55 @@
+sprd DRM: let userspace export GEM buffers as dma-bufs
+
+The driver only wires up PRIME import, so DRM_IOCTL_PRIME_HANDLE_TO_FD fails with
+ENOSYS. wlroots (phoc, sway) allocates dumb buffers and exports them before adding
+them as framebuffers, so no wlroots compositor can start. The sg_table and mmap
+helpers already exist; register them and add trivial vmap/vunmap.
+
+--- a/drivers/gpu/drm/sprd/sprd_drm.c
++++ b/drivers/gpu/drm/sprd/sprd_drm.c
+@@ -507,9 +507,15 @@
+ 	.gem_free_object_unlocked	= sprd_gem_free_object,
+ 	.dumb_create		= sprd_gem_cma_dumb_create,
+ 
++	.prime_handle_to_fd	= drm_gem_prime_handle_to_fd,
+ 	.prime_fd_to_handle	= drm_gem_prime_fd_to_handle,
++	.gem_prime_export	= drm_gem_prime_export,
+ 	.gem_prime_import	= drm_gem_prime_import,
++	.gem_prime_get_sg_table	= sprd_gem_cma_prime_get_sg_table,
+ 	.gem_prime_import_sg_table = sprd_gem_prime_import_sg_table,
++	.gem_prime_vmap		= sprd_gem_prime_vmap,
++	.gem_prime_vunmap	= sprd_gem_prime_vunmap,
++	.gem_prime_mmap		= sprd_gem_cma_prime_mmap,
+ 
+ 	.ioctls			= sprd_ioctls,
+ 	.num_ioctls		= ARRAY_SIZE(sprd_ioctls),
+--- a/drivers/gpu/drm/sprd/sprd_gem.c
++++ b/drivers/gpu/drm/sprd/sprd_gem.c
+@@ -190,6 +190,16 @@
+ 	return sgtb;
+ }
+ 
++void *sprd_gem_prime_vmap(struct drm_gem_object *obj)
++{
++	return to_sprd_gem_obj(obj)->vaddr;
++}
++
++void sprd_gem_prime_vunmap(struct drm_gem_object *obj, void *vaddr)
++{
++	/* vaddr is the buffer's permanent kernel mapping */
++}
++
+ struct drm_gem_object *sprd_gem_prime_import_sg_table(struct drm_device *drm,
+ 		struct dma_buf_attachment *attach, struct sg_table *sgtb)
+ {
+--- a/drivers/gpu/drm/sprd/sprd_gem.h
++++ b/drivers/gpu/drm/sprd/sprd_gem.h
+@@ -32,6 +32,8 @@
+ int sprd_gem_cma_prime_mmap(struct drm_gem_object *obj,
+ 			 struct vm_area_struct *vma);
+ struct sg_table *sprd_gem_cma_prime_get_sg_table(struct drm_gem_object *obj);
++void *sprd_gem_prime_vmap(struct drm_gem_object *obj);
++void sprd_gem_prime_vunmap(struct drm_gem_object *obj, void *vaddr);
+ struct drm_gem_object *sprd_gem_prime_import_sg_table(struct drm_device *dev,
+ 		struct dma_buf_attachment *attach, struct sg_table *sgtb);
+ 

@@ -1,0 +1,22 @@
+drm/sprd: send the brightness again when the panel is enabled
+
+The panel's init code resets its brightness, and a brightness write that
+arrives while the panel is off fails with -ENXIO. Phosh writes the brightness
+just before the panel finishes powering up on unblank, so the screen stayed
+dark until the next brightness change (its idle-dim, 30 s later).
+Re-send the last brightness once the panel is enabled, as the ESD recovery
+path already does.
+
+--- a/drivers/gpu/drm/sprd/sprd_panel.c
++++ b/drivers/gpu/drm/sprd/sprd_panel.c
+@@ -487,6 +487,10 @@
+
+ 	panel->is_enabled = true;
+ 	mutex_unlock(&panel_lock);
++
++	if (panel->oled_bdev && panel->oled_bdev->props.brightness)
++		sprd_oled_set_brightness(panel->oled_bdev);
++
+ 	DRM_INFO("HS03 set init code exit\n");
+
+ 	return 0;

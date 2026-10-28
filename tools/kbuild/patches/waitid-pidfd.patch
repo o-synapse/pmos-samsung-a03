@@ -1,0 +1,95 @@
+exit: support pidfd in waitid (P_PIDFD), backported from 5.4
+
+This Android kernel has the pidfd_open backport (for lmkd) but not P_PIDFD in waitid.
+GLib >= 2.80 takes a working pidfd_open to mean waitid(P_PIDFD) works too, so every
+child watch fails with EINVAL and its exit is never noticed: gnome-session hangs on
+the first autostart helper (xdg-user-dirs-update) and Phosh never starts.
+Port of upstream 3695eae5fee0 ("signal: support pidfd in waitid").
+
+--- a/include/uapi/linux/wait.h
++++ b/include/uapi/linux/wait.h
+@@ -17,6 +17,7 @@
+ #define P_ALL		0
+ #define P_PID		1
+ #define P_PGID		2
++#define P_PIDFD		3
+
+
+ #endif /* _UAPI_LINUX_WAIT_H */
+--- a/include/linux/pid.h
++++ b/include/linux/pid.h
+@@ -79,6 +79,7 @@
+ extern struct pid init_struct_pid;
+
+ extern const struct file_operations pidfd_fops;
++extern struct pid *pidfd_get_pid(unsigned int fd);
+
+ static inline struct pid *get_pid(struct pid *pid)
+ {
+--- a/kernel/pid.c
++++ b/kernel/pid.c
+@@ -39,6 +39,7 @@
+ #include <linux/proc_ns.h>
+ #include <linux/proc_fs.h>
+ #include <linux/anon_inodes.h>
++#include <linux/file.h>
+ #include <linux/sched/signal.h>
+ #include <linux/sched/task.h>
+ 
+@@ -570,6 +570,22 @@
+ 	return pid;
+ }
+
++struct pid *pidfd_get_pid(unsigned int fd)
++{
++	struct fd f;
++	struct pid *pid = ERR_PTR(-EBADF);
++
++	f = fdget(fd);
++	if (!f.file)
++		return pid;
++
++	if (f.file->f_op == &pidfd_fops)
++		pid = get_pid(f.file->private_data);
++
++	fdput(f);
++	return pid;
++}
++
+ /**
+  * pidfd_create() - Create a new pid file descriptor.
+  *
+--- a/kernel/exit.c
++++ b/kernel/exit.c
+@@ -1562,21 +1562,28 @@
+ 		break;
+ 	case P_PID:
+ 		type = PIDTYPE_PID;
+ 		if (upid <= 0)
+ 			return -EINVAL;
++		pid = find_get_pid(upid);
+ 		break;
+ 	case P_PGID:
+ 		type = PIDTYPE_PGID;
+ 		if (upid <= 0)
+ 			return -EINVAL;
++		pid = find_get_pid(upid);
++		break;
++	case P_PIDFD:
++		type = PIDTYPE_PID;
++		if (upid < 0)
++			return -EINVAL;
++		pid = pidfd_get_pid(upid);
++		if (IS_ERR(pid))
++			return PTR_ERR(pid);
+ 		break;
+ 	default:
+ 		return -EINVAL;
+ 	}
+
+-	if (type < PIDTYPE_MAX)
+-		pid = find_get_pid(upid);
+-
+ 	wo.wo_type	= type;
+ 	wo.wo_pid	= pid;
+ 	wo.wo_flags	= options;

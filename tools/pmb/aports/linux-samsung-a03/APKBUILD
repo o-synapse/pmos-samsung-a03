@@ -1,0 +1,32 @@
+# Reference: <https://postmarketos.org/vendorkernel>
+# Samsung SM-A035F 4.14 kernel (A035FXXS9CYG1 source + tools/kbuild/pmos.config),
+# built outside pmbootstrap with AOSP clang r383902 by tools/kbuild/kmake.sh
+# Without SYSVIPC/USER_NS so that the vendor modules in socko load (see tools/kbuild/pmos.config)
+# Patched with tools/kbuild/patches/:
+#   sprd-drm-prime-export.patch    wlroots needs PRIME export
+#   waitid-pidfd.patch             GLib waits on children with waitid(P_PIDFD)
+#   faccessat2.patch               musl needs faccessat2 for faccessat flags (appstream/phrog crash)
+#   panel-restore-brightness.patch backlight stays dark ~30 s after wake without it
+pkgname=linux-samsung-a03
+pkgver=4.14.199
+pkgrel=3
+pkgdesc="Samsung Galaxy A03 vendor kernel"
+arch="aarch64"
+_flavor="samsung-a03"
+url="https://opensource.samsung.com"
+license="GPL-2.0-only"
+options="!strip !check !tracedeps"
+source="kernel-prebuilt.tar.gz"
+
+package() {
+	cd "$srcdir"/kernel-prebuilt
+	install -Dm644 Image "$pkgdir"/boot/vmlinuz
+	install -Dm644 kernel.release "$pkgdir"/usr/share/kernel/$_flavor/kernel.release
+	install -Dm644 config "$pkgdir"/boot/config
+	mkdir -p "$pkgdir"/lib
+	cp -a lib/modules "$pkgdir"/lib/
+}
+
+sha512sums="
+d2e7fbcc5dc096aa21ef87a0b5f98b3e873a24466aa65cb08e2ee740fe0e1f5a5177b8076182a3b05d9c5a14d080f6b3776c146b0bed470b1010905d75602039  kernel-prebuilt.tar.gz
+"

@@ -1,0 +1,108 @@
+fs: add faccessat2 (backported from 5.8)
+
+musl implements faccessat() flags (AT_SYMLINK_NOFOLLOW, AT_EACCESS) with the
+faccessat2 syscall and returns EINVAL without it. GLib 2.90's
+g_local_file_query_exists uses AT_SYMLINK_NOFOLLOW, so every existence check
+failed. appstream then segfaults loading its pool, which takes down phrog/phosh
+(their app metainfo cache) and leaves the greeter on a spinner.
+Port of upstream c8ffd8bcdd28 ("vfs: add faccessat2 syscall").
+
+--- a/fs/open.c	2026-10-28 21:42:04.750275457 +0000
++++ b/fs/open.c	2026-10-28 21:42:04.866278449 +0000
+@@ -359,10 +359,11 @@
+  * We do this by temporarily clearing all FS-related capabilities and
+  * switching the fsuid/fsgid around to the real ones.
+  */
+-SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
++static long do_faccessat(int dfd, const char __user *filename, int mode,
++			 int flags)
+ {
+-	const struct cred *old_cred;
+-	struct cred *override_cred;
++	const struct cred *old_cred = NULL;
++	struct cred *override_cred = NULL;
+ 	struct path path;
+ 	struct inode *inode;
+ 	struct vfsmount *mnt;
+@@ -372,6 +373,18 @@
+ 	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
+ 		return -EINVAL;
+ 
++	if (flags & ~(AT_EACCESS | AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH))
++		return -EINVAL;
++
++	if (flags & AT_SYMLINK_NOFOLLOW)
++		lookup_flags &= ~LOOKUP_FOLLOW;
++	if (flags & AT_EMPTY_PATH)
++		lookup_flags |= LOOKUP_EMPTY;
++
++	/* AT_EACCESS checks with the effective ids: no cred override */
++	if (flags & AT_EACCESS)
++		goto retry;
++
+ 	override_cred = prepare_creds();
+ 	if (!override_cred)
+ 		return -ENOMEM;
+@@ -451,11 +464,24 @@
+ 		goto retry;
+ 	}
+ out:
+-	revert_creds(old_cred);
+-	put_cred(override_cred);
++	if (old_cred) {
++		revert_creds(old_cred);
++		put_cred(override_cred);
++	}
+ 	return res;
+ }
+ 
++SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
++{
++	return do_faccessat(dfd, filename, mode, 0);
++}
++
++SYSCALL_DEFINE4(faccessat2, int, dfd, const char __user *, filename, int, mode,
++		int, flags)
++{
++	return do_faccessat(dfd, filename, mode, flags);
++}
++
+ SYSCALL_DEFINE2(access, const char __user *, filename, int, mode)
+ {
+ 	return sys_faccessat(AT_FDCWD, filename, mode);
+--- a/include/uapi/linux/fcntl.h	2026-10-28 21:42:04.763275792 +0000
++++ b/include/uapi/linux/fcntl.h	2026-10-28 21:42:04.877278732 +0000
+@@ -99,6 +99,7 @@
+ #define AT_SYMLINK_FOLLOW	0x400   /* Follow symbolic links.  */
+ #define AT_NO_AUTOMOUNT		0x800	/* Suppress terminal automount traversal */
+ #define AT_EMPTY_PATH		0x1000	/* Allow empty relative pathname */
++#define AT_EACCESS		0x200	/* Test access permitted for effective IDs, not real IDs */
+ 
+ #define AT_STATX_SYNC_TYPE	0x6000	/* Type of synchronisation required from statx() */
+ #define AT_STATX_SYNC_AS_STAT	0x0000	/* - Do whatever stat() does */
+--- a/include/uapi/asm-generic/unistd.h	2026-10-28 21:42:04.772276024 +0000
++++ b/include/uapi/asm-generic/unistd.h	2026-10-28 21:42:04.887278990 +0000
+@@ -736,9 +736,11 @@
+ __SYSCALL(__NR_pidfd_send_signal, sys_pidfd_send_signal)
+ #define __NR_pidfd_open 434
+ __SYSCALL(__NR_pidfd_open, sys_pidfd_open)
++#define __NR_faccessat2 439
++__SYSCALL(__NR_faccessat2, sys_faccessat2)
+ 
+ #undef __NR_syscalls
+-#define __NR_syscalls 435
++#define __NR_syscalls 440
+ 
+ /*
+  * All syscalls below here should go away really,
+--- a/include/linux/syscalls.h	2026-10-28 21:42:04.782276282 +0000
++++ b/include/linux/syscalls.h	2026-10-28 21:42:04.896279222 +0000
+@@ -809,6 +809,8 @@
+ asmlinkage long sys_futimesat(int dfd, const char __user *filename,
+ 			      struct timeval __user *utimes);
+ asmlinkage long sys_faccessat(int dfd, const char __user *filename, int mode);
++asmlinkage long sys_faccessat2(int dfd, const char __user *filename, int mode,
++			       int flags);
+ asmlinkage long sys_fchmodat(int dfd, const char __user * filename,
+ 			     umode_t mode);
+ asmlinkage long sys_fchownat(int dfd, const char __user *filename, uid_t user,

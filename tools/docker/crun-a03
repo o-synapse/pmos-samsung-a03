@@ -1,0 +1,31 @@
+#!/bin/sh
+# Docker runtime wrapper for the A03's 4.14 kernel. It edits the OCI spec on
+# create and then runs crun. The kernel has no PID/IPC namespaces, no POSIX
+# mqueue, no pids cgroup, and no BPF device cgroup (added in 4.15), and enabling
+# them would change the struct CRCs the Wi-Fi blob needs.
+# The removed items are those namespaces, the mqueue mount, the device rules,
+# the pids limit, and the io/cpu settings (no io.max here, no cpu controller).
+bundle=
+cmd=
+prev=
+for a in "$@"; do
+	case "$prev" in
+	--bundle|-b) bundle=$a ;;
+	esac
+	case "$a" in
+	--bundle=*) bundle=${a#--bundle=} ;;
+	create|run) [ -z "$cmd" ] && cmd=$a ;;
+	esac
+	prev=$a
+done
+if [ -n "$cmd" ]; then
+	[ -n "$bundle" ] || bundle=.
+	cfg=$bundle/config.json
+	if [ -f "$cfg" ]; then
+		jq '.linux.namespaces |= map(select(.type != "pid" and .type != "ipc"))
+		  | .mounts |= map(select(.type != "mqueue"))
+		  | del(.linux.resources.devices)
+		  | del(.linux.resources.pids, .linux.resources.blockIO, .linux.resources.cpu)' "$cfg" > "$cfg.a03" && mv "$cfg.a03" "$cfg"
+	fi
+fi
+exec /usr/bin/crun "$@"

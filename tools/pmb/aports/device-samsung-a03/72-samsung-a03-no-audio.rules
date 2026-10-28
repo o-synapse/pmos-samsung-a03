@@ -1,0 +1,4 @@
+# Configuring any audio PCM (snd_pcm_hw_params) oopses the stock sprd ASoC driver in
+# __memset_io and the phone reboots. pulseaudio does this as soon as Phosh or its greeter
+# starts, so keep the PCM devices root-only and out of the seat's uaccess ACLs.
+SUBSYSTEM=="sound", KERNEL=="pcmC*|comprC*", GROUP="root", MODE="0600", TAG-="uaccess"

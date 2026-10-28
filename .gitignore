@@ -1,0 +1,17 @@
+# Samsung stock firmware and kernel source (download them yourself, see docs/install.md)
+/firmware/
+/source/
+# Third-party tools (downloaded separately)
+/tools/bifrost/
+/tools/heimdall/
+# Build output
+/build/
+# Secrets: the phone's login and the boot image signing key
+/tools/pmb/credentials.txt
+*.pem
+# Prebuilt kernel tarball and ready-built files are attached to the GitHub release
+/tools/pmb/aports/linux-samsung-a03/kernel-prebuilt.tar.gz
+/docs/release/*
+!/docs/release/README.md
+!/docs/release/MD5SUMS
+.DS_Store
